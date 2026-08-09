@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type MouseEvent, type TouchEvent, type SVGProps } from 'react';
 import { MapPin, Wifi, BatteryCharging, Star, Heart, X, ExternalLink, ChevronLeft, List, Navigation } from 'lucide-react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
+import GoogleMap from './components/GoogleMap';
 
 type Station = 'all' | '渋谷' | '新宿';
 
@@ -54,68 +57,57 @@ interface SwipeCardProps {
   onDislike: (id: string) => void;
 }
 
-const MOCK_CAFES: Cafe[] = [
-  {
-    placeId: "ChIJ1",
-    name: "ROASTERY TOKYO SHIBUYA",
-    address: "東京都渋谷区神南1-2-3",
-    station: "渋谷",
-    mapPosition: { x: 45, y: 65 }, // 地図上の相対位置(%)
-    rating: 4.7,
-    photoUrls: ["https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=600&q=80"],
-    scores: { workability: 4.8, stylishness: 4.9 },
-    features: { hasOutlet: true, hasWifi: true },
-    isChain: false
-  },
-  {
-    placeId: "ChIJ2",
-    name: "Workspace Cafe 新宿",
-    address: "東京都新宿区新宿3-1-1",
-    station: "新宿",
-    mapPosition: { x: 55, y: 35 },
-    rating: 4.2,
-    photoUrls: ["https://images.unsplash.com/photo-1497935586351-b67a49e012bf?auto=format&fit=crop&w=600&q=80"],
-    scores: { workability: 4.9, stylishness: 3.5 },
-    features: { hasOutlet: true, hasWifi: true },
-    isChain: false
-  },
-  {
-    placeId: "ChIJ3",
-    name: "Designers Lounge Cafe",
-    address: "東京都渋谷区代官山町1-1",
-    station: "渋谷",
-    mapPosition: { x: 35, y: 75 },
-    rating: 4.5,
-    photoUrls: ["https://images.unsplash.com/photo-1600093463592-8e36ae95ef56?auto=format&fit=crop&w=600&q=80"],
-    scores: { workability: 3.2, stylishness: 5.0 },
-    features: { hasOutlet: false, hasWifi: true },
-    isChain: false
-  },
-  {
-    placeId: "ChIJ4",
-    name: "Book & Coffee Shinjuku",
-    address: "東京都新宿区西新宿2-8-1",
-    station: "新宿",
-    mapPosition: { x: 40, y: 30 },
-    rating: 4.4,
-    photoUrls: ["https://images.unsplash.com/photo-1521017430209-f64710118e41?auto=format&fit=crop&w=600&q=80"],
-    scores: { workability: 4.5, stylishness: 4.2 },
-    features: { hasOutlet: true, hasWifi: false },
-    isChain: false
-  },
-  {
-    placeId: "ChIJ5",
-    name: "渋谷ストリーム・ロースター",
-    address: "東京都渋谷区渋谷3-21-3",
-    station: "渋谷",
-    mapPosition: { x: 55, y: 55 },
-    rating: 4.6,
-    photoUrls: ["https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=600&q=80"],
-    scores: { workability: 4.0, stylishness: 4.5 },
-    features: { hasOutlet: true, hasWifi: true },
-    isChain: false
+const normalizeNumber = (value: unknown, fallback = 0) => {
+  const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const normalizeStringArray = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.map(String).filter(item => item.trim() !== '');
   }
-];
+  if (typeof value === 'string') {
+    return value.trim() === '' ? [] : [value];
+  }
+  return [];
+};
+
+const normalizeBoolean = (value: unknown, fallback = false) => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return value === 'true';
+  return fallback;
+};
+
+const parseCafeDocument = (doc: any): Cafe | null => {
+  const data = doc.data() ?? {};
+  const mapPosition = data.mapPosition ?? data.map_position ?? {};
+  const scores = data.scores ?? {};
+  const features = data.features ?? {};
+  const stationValue = String(data.station ?? 'all');
+  const station: Station = stationValue === '渋谷' || stationValue === '新宿' ? stationValue : 'all';
+
+  return {
+    placeId: doc.id,
+    name: String(data.name ?? ''),
+    address: String(data.address ?? ''),
+    station,
+    mapPosition: {
+      x: normalizeNumber(mapPosition.x, 0),
+      y: normalizeNumber(mapPosition.y, 0),
+    },
+    rating: normalizeNumber(data.rating, 0),
+    photoUrls: normalizeStringArray(data.photoUrls),
+    scores: {
+      workability: normalizeNumber(scores.workability, 0),
+      stylishness: normalizeNumber(scores.stylishness, 0),
+    },
+    features: {
+      hasOutlet: normalizeBoolean(features.hasOutlet, false),
+      hasWifi: normalizeBoolean(features.hasWifi, false),
+    },
+    isChain: normalizeBoolean(data.isChain, false),
+  };
+};
 
 const generateTabelogUrl = (name: string, address: string) => {
   const areaMatch = address.match(/(.+?[市区町村])/);
@@ -127,8 +119,32 @@ const generateTabelogUrl = (name: string, address: string) => {
 export default function App() {
   const [view, setView] = useState<'top' | 'swipe' | 'list'>('top');
   const [selectedStation, setSelectedStation] = useState<Station>('all');
+  const [cafes, setCafes] = useState<Cafe[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [dislikedIds, setDislikedIds] = useState<string[]>([]);
+
+  // Firestore からカフェデータを取得
+  useEffect(() => {
+    const fetchCafes = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const snapshot = await getDocs(collection(db, 'cafes'));
+        const loadedCafes: Cafe[] = snapshot.docs.map(doc => parseCafeDocument(doc)).filter((cafe): cafe is Cafe => cafe !== null);
+        setCafes(loadedCafes);
+      } catch (fetchError) {
+        console.error('Failed to fetch cafes from Firestore', fetchError);
+        setError('カフェデータの読み込みに失敗しました。再読み込みしてください。');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCafes();
+  }, []);
 
   // 初期マウント時のデータ復元
   useEffect(() => {
@@ -162,7 +178,7 @@ export default function App() {
   };
 
   // フィルタリングと表示対象の算出
-  const stationCafes = MOCK_CAFES.filter(c => selectedStation === 'all' || c.station === selectedStation);
+  const stationCafes = cafes.filter(c => selectedStation === 'all' || c.station === selectedStation);
   const evaluated = new Set<string>([...likedIds, ...dislikedIds]);
   const unseenCafes = stationCafes.filter(c => !evaluated.has(c.placeId));
   const likedCafes = stationCafes.filter(c => likedIds.includes(c.placeId));
@@ -170,16 +186,51 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center font-sans">
       <div className="w-full max-w-[400px] h-[100dvh] sm:h-[800px] bg-white sm:rounded-[40px] sm:shadow-2xl overflow-hidden flex flex-col relative border-4 border-gray-900">
-        
-        {view === 'top' && (
-          <TopScreen 
-            selectedStation={selectedStation}
-            setSelectedStation={setSelectedStation}
-            likedCafes={likedCafes}
-            unseenCount={unseenCafes.length}
-            onGoToSwipe={() => setView('swipe')}
-            onGoToList={() => setView('list')}
-          />
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center p-6 text-gray-600">
+            Firestoreからカフェ情報を読み込んでいます...
+          </div>
+        ) : error ? (
+          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-700">
+            <p className="mb-3 font-bold">データの読み込みに失敗しました。</p>
+            <p className="text-sm mb-4">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-gray-900 text-white rounded-full"
+            >
+              再読み込み
+            </button>
+          </div>
+        ) : (
+          <>
+            <div className={view === 'top' ? 'flex-1' : 'hidden'}>
+              <TopScreen 
+                selectedStation={selectedStation}
+                setSelectedStation={setSelectedStation}
+                likedCafes={likedCafes}
+                unseenCount={unseenCafes.length}
+                onGoToSwipe={() => setView('swipe')}
+                onGoToList={() => setView('list')}
+              />
+            </div>
+
+            {view === 'swipe' && (
+              <SwipeScreen 
+                unseenCafes={unseenCafes}
+                onLike={handleLike}
+                onDislike={handleDislike}
+                onBack={() => setView('top')}
+                onReset={handleReset}
+              />
+            )}
+
+            {view === 'list' && (
+              <ListScreen 
+                likedCafes={likedCafes}
+                onBack={() => setView('top')}
+              />
+            )}
+          </>
         )}
 
         {view === 'swipe' && (
@@ -249,17 +300,11 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
         </div>
       </div>
 
-      {/* マップエリア（疑似実装） */}
-      <div className="flex-1 relative bg-[#e5e7eb] overflow-hidden">
-        {/* マップの背景模様（道路や区画のイメージ） */}
-        <div className="absolute inset-0 opacity-20" style={{ 
-          backgroundImage: 'linear-gradient(#cbd5e1 2px, transparent 2px), linear-gradient(90deg, #cbd5e1 2px, transparent 2px)', 
-          backgroundSize: '40px 40px' 
-        }}></div>
-        <div className="absolute top-1/4 left-0 right-0 h-1 bg-white opacity-40 rotate-12"></div>
-        <div className="absolute top-1/2 left-1/4 bottom-0 w-1 bg-white opacity-40 -rotate-12"></div>
+      <div className="flex-1 relative overflow-hidden">
+        <div className="absolute inset-0">
+          <GoogleMap likedCafes={likedCafes} selectedStation={selectedStation} />
+        </div>
 
-        {/* プレースホルダーメッセージ（ピンがない場合） */}
         {likedCafes.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="bg-white/80 backdrop-blur px-6 py-3 rounded-full text-sm font-medium text-gray-500 shadow-sm">
@@ -268,24 +313,6 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
           </div>
         )}
 
-        {/* いいねしたカフェのピン */}
-        {likedCafes.map(cafe => (
-          <div 
-            key={cafe.placeId} 
-            className="absolute transform -translate-x-1/2 -translate-y-full transition-all duration-500" 
-            style={{ left: `${cafe.mapPosition.x}%`, top: `${cafe.mapPosition.y}%` }}
-          >
-            <div className="relative group">
-              <MapPin size={36} className="text-orange-600 fill-orange-500 drop-shadow-lg" />
-              {/* ツールチップ的な店舗名表示 */}
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 bg-white text-xs font-bold px-2 py-1 rounded shadow-md whitespace-nowrap text-gray-800 pointer-events-none border border-gray-100">
-                {cafe.name}
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* スワイプ画面への動線ボタン */}
         <div className="absolute bottom-8 left-0 right-0 px-6 flex justify-center">
           <button 
             onClick={onGoToSwipe}
