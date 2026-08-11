@@ -1,32 +1,29 @@
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+# デプロイコマンド
+```
+gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1 --set-build-env-vars "VITE_GOOGLE_MAPS_API_KEY=AIzaSyAyzT2rL9ln2ztZUNqh1NcMhfRW3hLtVaY,VITE_FIREBASE_API_KEY=AIzaSyBtDLb9zgIZj7-fVvmKolz3dvLc73gXc0s,VITE_FIREBASE_AUTH_DOMAIN=cafe-search-202608.firebaseapp.com,VITE_FIREBASE_PROJECT_ID=cafe-search-202608,VITE_FIREBASE_STORAGE_BUCKET=cafe-search-202608.firebasestorage.app,VITE_FIREBASE_MESSAGING_SENDER_ID=678473793429,VITE_FIREBASE_APP_ID=1:678473793429:web:a50c9bc58efd1bc387009c,VITE_FIREBASE_MEASUREMENT_ID=G-P4E0LHDJ6Q,VITE_FIREBASE_DATABASE_ID=cafe-search"
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+
+```
+gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1
+```
+
+```
+gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1 --build-env-vars-file .env.local
+```
+
+```
+gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1 --build-env-vars-file .env.local
+```
+
+
+```
+$envVars = (Get-Content .env.local | Where-Object { $_ -match '=' -and $_ -notmatch '^#' }) -join ','; gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1 --set-build-env-vars $envVars
+```
+
+
+# 最終的なデプロイコマンド
+```
+npm run build; gcloud run deploy cafe-search --source . --region asia-northeast1 --platform managed --allow-unauthenticated --port 8080 --min-instances 1
+```
