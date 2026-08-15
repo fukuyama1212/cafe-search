@@ -1,5 +1,6 @@
+// App.tsx
 import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type MouseEvent, type TouchEvent, type SVGProps } from 'react';
-import { MapPin, Wifi, BatteryCharging, Star, Heart, X, ExternalLink, ChevronLeft, List, Navigation } from 'lucide-react';
+import { MapPin, Wifi, BatteryCharging, Star, Heart, X, ExternalLink, ChevronLeft, List, Navigation, RotateCcw } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import GoogleMap from './components/GoogleMap';
@@ -21,6 +22,7 @@ interface Cafe {
   name: string;
   address: string;
   station: Station;
+  location: { lat: number; lng: number };
   mapPosition: { x: number; y: number };
   rating: number;
   photoUrls: string[];
@@ -36,6 +38,7 @@ interface TopScreenProps {
   unseenCount: number;
   onGoToSwipe: () => void;
   onGoToList: () => void;
+  onReset: () => void;
 }
 
 interface SwipeScreenProps {
@@ -80,6 +83,7 @@ const normalizeBoolean = (value: unknown, fallback = false) => {
 
 const parseCafeDocument = (doc: any): Cafe | null => {
   const data = doc.data() ?? {};
+  const location = data.location ?? {};
   const mapPosition = data.mapPosition ?? data.map_position ?? {};
   const scores = data.scores ?? {};
   const features = data.features ?? {};
@@ -91,6 +95,10 @@ const parseCafeDocument = (doc: any): Cafe | null => {
     name: String(data.name ?? ''),
     address: String(data.address ?? ''),
     station,
+    location: {
+      lat: normalizeNumber(location.lat, 0),
+      lng: normalizeNumber(location.lng, 0),
+    },
     mapPosition: {
       x: normalizeNumber(mapPosition.x, 0),
       y: normalizeNumber(mapPosition.y, 0),
@@ -125,7 +133,6 @@ export default function App() {
   const [likedIds, setLikedIds] = useState<string[]>([]);
   const [dislikedIds, setDislikedIds] = useState<string[]>([]);
 
-  // Firestore からカフェデータを取得
   useEffect(() => {
     const fetchCafes = async () => {
       setLoading(true);
@@ -146,7 +153,6 @@ export default function App() {
     fetchCafes();
   }, []);
 
-  // 初期マウント時のデータ復元
   useEffect(() => {
     try {
       const savedLikes = JSON.parse(localStorage.getItem('cafe_search_likes') ?? '[]') as string[];
@@ -158,104 +164,92 @@ export default function App() {
     }
   }, []);
 
-  const saveState = (likes: string[], dislikes: string[]) => {
-    setLikedIds(likes);
-    setDislikedIds(dislikes);
-    localStorage.setItem('cafe_search_likes', JSON.stringify(likes));
-    localStorage.setItem('cafe_search_dislikes', JSON.stringify(dislikes));
-  };
-
   const handleLike = (id: string) => {
-    saveState([...likedIds, id], dislikedIds);
+    setLikedIds(prev => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      localStorage.setItem('cafe_search_likes', JSON.stringify(next));
+      return next;
+    });
   };
 
   const handleDislike = (id: string) => {
-    saveState(likedIds, [...dislikedIds, id]);
+    setDislikedIds(prev => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      localStorage.setItem('cafe_search_dislikes', JSON.stringify(next));
+      return next;
+    });
   };
 
   const handleReset = () => {
-    saveState([], []);
+    if (window.confirm('マッチング履歴とお気に入りをすべてリセットして最初からやり直しますか？')) {
+      setLikedIds([]);
+      setDislikedIds([]);
+      localStorage.setItem('cafe_search_likes', JSON.stringify([]));
+      localStorage.setItem('cafe_search_dislikes', JSON.stringify([]));
+    }
   };
 
-  // フィルタリングと表示対象の算出
   const stationCafes = cafes.filter(c => selectedStation === 'all' || c.station === selectedStation);
   const evaluated = new Set<string>([...likedIds, ...dislikedIds]);
   const unseenCafes = stationCafes.filter(c => !evaluated.has(c.placeId));
   const likedCafes = stationCafes.filter(c => likedIds.includes(c.placeId));
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center font-sans">
-      <div className="w-full max-w-[400px] h-[100dvh] sm:h-[800px] bg-white sm:rounded-[40px] sm:shadow-2xl overflow-hidden flex flex-col relative border-4 border-gray-900">
-        {loading ? (
-          <div className="flex-1 flex items-center justify-center p-6 text-gray-600">
-            Firestoreからカフェ情報を読み込んでいます...
+    <div className="w-full h-[100dvh] bg-white flex flex-col relative overflow-hidden font-sans">
+      {loading ? (
+        <div className="flex-1 flex items-center justify-center p-6 text-gray-600">
+          Firestoreからカフェ情報を読み込んでいます...
+        </div>
+      ) : error ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-700">
+          <p className="mb-3 font-bold">データの読み込みに失敗しました。</p>
+          <p className="text-sm mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-gray-900 text-white rounded-full"
+          >
+            再読み込み
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className={view === 'top' ? 'flex-1 flex flex-col relative overflow-hidden' : 'hidden'}>
+            <TopScreen 
+              selectedStation={selectedStation}
+              setSelectedStation={setSelectedStation}
+              likedCafes={likedCafes}
+              unseenCount={unseenCafes.length}
+              onGoToSwipe={() => setView('swipe')}
+              onGoToList={() => setView('list')}
+              onReset={handleReset}
+            />
           </div>
-        ) : error ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-gray-700">
-            <p className="mb-3 font-bold">データの読み込みに失敗しました。</p>
-            <p className="text-sm mb-4">{error}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="px-4 py-2 bg-gray-900 text-white rounded-full"
-            >
-              再読み込み
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className={view === 'top' ? 'flex-1' : 'hidden'}>
-              <TopScreen 
-                selectedStation={selectedStation}
-                setSelectedStation={setSelectedStation}
-                likedCafes={likedCafes}
-                unseenCount={unseenCafes.length}
-                onGoToSwipe={() => setView('swipe')}
-                onGoToList={() => setView('list')}
-              />
-            </div>
 
-            {view === 'swipe' && (
-              <SwipeScreen 
-                unseenCafes={unseenCafes}
-                onLike={handleLike}
-                onDislike={handleDislike}
-                onBack={() => setView('top')}
-                onReset={handleReset}
-              />
-            )}
+          {view === 'swipe' && (
+            <SwipeScreen 
+              unseenCafes={unseenCafes}
+              onLike={handleLike}
+              onDislike={handleDislike}
+              onBack={() => setView('top')}
+              onReset={handleReset}
+            />
+          )}
 
-            {view === 'list' && (
-              <ListScreen 
-                likedCafes={likedCafes}
-                onBack={() => setView('top')}
-              />
-            )}
-          </>
-        )}
-
-        {view === 'swipe' && (
-          <SwipeScreen 
-            unseenCafes={unseenCafes}
-            onLike={handleLike}
-            onDislike={handleDislike}
-            onBack={() => setView('top')}
-            onReset={handleReset}
-          />
-        )}
-
-        {view === 'list' && (
-          <ListScreen 
-            likedCafes={likedCafes}
-            onBack={() => setView('top')}
-          />
-        )}
-
-      </div>
+          {view === 'list' && (
+            <ListScreen 
+              likedCafes={likedCafes}
+              onBack={() => setView('top')}
+            />
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCount, onGoToSwipe, onGoToList }: TopScreenProps) {
+function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCount, onGoToSwipe, onGoToList, onReset }: TopScreenProps) {
   const stations: { id: Station; label: string }[] = [
     { id: 'all', label: 'すべて' },
     { id: '渋谷', label: '渋谷' },
@@ -263,26 +257,34 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
   ];
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
-      {/* ヘッダー */}
-      <header className="px-6 py-4 flex justify-between items-center bg-white shadow-sm z-20">
+    <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
+      <header className="px-6 py-4 flex justify-between items-center bg-white shadow-sm z-20 shrink-0">
         <div className="flex items-center space-x-2 text-orange-600">
           <MapPin size={24} />
           <h1 className="font-bold text-xl tracking-tight">Cafe Map</h1>
         </div>
-        <button 
-          onClick={onGoToList}
-          className="relative p-2 rounded-full text-gray-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
-        >
-          <List size={24} />
-          {likedCafes.length > 0 && (
-            <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-orange-600 rounded-full border-2 border-white"></span>
-          )}
-        </button>
+        <div className="flex items-center space-x-1">
+          <button 
+            onClick={onReset}
+            className="p-2 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+            title="マッチング履歴をリセット"
+          >
+            <RotateCcw size={20} />
+          </button>
+          <button 
+            onClick={onGoToList}
+            className="relative p-2 rounded-full text-gray-500 hover:bg-orange-50 hover:text-orange-600 transition-colors"
+            title="お気に入り一覧"
+          >
+            <List size={24} />
+            {likedCafes.length > 0 && (
+              <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-orange-600 rounded-full border-2 border-white"></span>
+            )}
+          </button>
+        </div>
       </header>
 
-      {/* 駅選択タブ */}
-      <div className="bg-white px-4 py-3 border-b border-gray-100 z-10">
+      <div className="bg-white px-4 py-3 border-b border-gray-100 z-10 shrink-0">
         <div className="flex space-x-2">
           {stations.map(st => (
             <button
@@ -313,7 +315,7 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
           </div>
         )}
 
-        <div className="absolute bottom-8 left-0 right-0 px-6 flex justify-center">
+        <div className="absolute bottom-8 left-0 right-0 px-6 flex justify-center z-10">
           <button 
             onClick={onGoToSwipe}
             disabled={unseenCount === 0}
@@ -343,8 +345,8 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
   const isFinished = unseenCafes.length === 0;
 
   return (
-    <div className="flex flex-col h-full bg-gray-50">
-      <header className="px-4 py-3 flex items-center z-20">
+    <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
+      <header className="px-4 py-3 flex items-center z-20 shrink-0">
         <button 
           onClick={onBack}
           className="w-10 h-10 bg-white rounded-full flex items-center justify-center shadow-sm text-gray-600 hover:bg-gray-50"
@@ -362,7 +364,7 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
             </div>
             <h2 className="text-2xl font-bold text-gray-800 mb-2">That's all!</h2>
             <p className="text-gray-500 mb-8">現在のエリアのカフェはすべて確認しました。</p>
-            <div className="space-y-4 w-full">
+            <div className="space-y-4 w-full max-w-sm">
               <button 
                 onClick={onBack}
                 className="w-full py-3 bg-gray-900 text-white rounded-xl font-medium shadow-lg active:scale-95 transition-transform"
@@ -379,6 +381,7 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
           </div>
         ) : (
           <SwipeCard 
+            key={currentCafe.placeId} 
             cafe={currentCafe} 
             onLike={onLike} 
             onDislike={onDislike} 
@@ -391,8 +394,8 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
 
 function ListScreen({ likedCafes, onBack }: ListScreenProps) {
   return (
-    <div className="flex flex-col h-full bg-gray-50">
-      <header className="px-4 py-3 flex items-center bg-white shadow-sm z-20">
+    <div className="flex flex-col h-full bg-gray-50 overflow-hidden">
+      <header className="px-4 py-3 flex items-center bg-white shadow-sm z-20 shrink-0">
         <button 
           onClick={onBack}
           className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200 transition-colors"
@@ -453,9 +456,16 @@ function ListScreen({ likedCafes, onBack }: ListScreenProps) {
 function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
   const startX = useRef(0);
   
   const SWIPE_THRESHOLD = 100;
+
+  useEffect(() => {
+    setIsVisible(false);
+    const timer = setTimeout(() => setIsVisible(true), 20);
+    return () => clearTimeout(timer);
+  }, [cafe.placeId]);
 
   const handleStart = (clientX: number) => {
     setIsDragging(true);
@@ -502,9 +512,11 @@ function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
         {...bindEvents}
         className="relative flex-1 bg-white rounded-[2rem] shadow-xl overflow-hidden cursor-grab active:cursor-grabbing border border-gray-100"
         style={{
-          transform: `translateX(${dragOffset}px) rotate(${rotate}deg)`,
-          opacity: isDragging ? opacity : 1,
-          transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s'
+          transform: isDragging 
+            ? `translateX(${dragOffset}px) rotate(${rotate}deg)` 
+            : (isVisible ? 'translateX(0) scale(1)' : 'translateX(0) scale(0.95)'),
+          opacity: isDragging ? opacity : (isVisible ? 1 : 0),
+          transition: isDragging ? 'none' : 'transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease-out'
         }}
       >
         <div className="absolute inset-0 z-10 flex items-center justify-between px-8 pointer-events-none">
@@ -574,7 +586,7 @@ function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
         </div>
       </div>
 
-      <div className="flex justify-center space-x-8 mt-6">
+      <div className="flex justify-center space-x-8 mt-6 shrink-0">
         <button 
           onClick={() => {
             setDragOffset(-SWIPE_THRESHOLD - 50);

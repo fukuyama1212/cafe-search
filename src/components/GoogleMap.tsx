@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader } from '@googlemaps/js-api-loader';
 
 type Station = 'all' | '渋谷' | '新宿';
@@ -18,6 +18,7 @@ export interface Cafe {
   name: string;
   address: string;
   station: Station;
+  location: { lat: number; lng: number };
   mapPosition: { x: number; y: number };
   rating: number;
   photoUrls: string[];
@@ -41,18 +42,13 @@ const getCenter = (selectedStation: Station) => {
   return STATION_CENTERS[selectedStation] ?? STATION_CENTERS.all;
 };
 
-const calcMarkerPosition = (cafe: Cafe) => {
-  const center = STATION_CENTERS[cafe.station] ?? STATION_CENTERS.all;
-  const lat = center.lat + (cafe.mapPosition.y - 50) * 0.0009;
-  const lng = center.lng + (cafe.mapPosition.x - 50) * 0.0011;
-  return { lat, lng };
-};
-
 export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
   const infoWindowRef = useRef<any>(null);
+  
+  const [isMapReady, setIsMapReady] = useState(false);
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -81,6 +77,8 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
         clickableIcons: false
       });
       infoWindowRef.current = new google.maps.InfoWindow();
+      
+      setIsMapReady(true);
     }).catch((error: unknown) => {
       console.error('[GoogleMap] failed to load Google Maps', error);
     });
@@ -95,10 +93,11 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
   }, [selectedStation]);
 
   useEffect(() => {
-    if (!mapRef.current) {
+    if (!mapRef.current || !isMapReady) {
       return;
     }
 
+    // 既存のマーカーを削除
     markersRef.current.forEach(marker => {
       if (marker && typeof marker.setMap === 'function') {
         marker.setMap(null);
@@ -106,8 +105,10 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
     });
     markersRef.current = [];
 
+    // 新しいマーカーを作成
     likedCafes.forEach(cafe => {
-      const position = calcMarkerPosition(cafe);
+      const position = { lat: cafe.location.lat, lng: cafe.location.lng };
+
       const google = (window as unknown as { google?: any }).google;
       if (!google || !mapRef.current) {
         return;
@@ -132,7 +133,7 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
 
       markersRef.current.push(marker);
     });
-  }, [likedCafes]);
+  }, [likedCafes, isMapReady]);
 
-  return <div ref={containerRef} className="absolute inset-0" />;
+  return <div ref={containerRef} className="absolute inset-0 w-full h-full" />;
 }
