@@ -1,4 +1,9 @@
-要件定義書 兼 基本設計書（SSOT v1.7）
+```
+Markdownテキストを、Canvas上で自動レンダリングさせず、「プレーンテキスト（Text）」または「Markdownファイル」のソースコード枠として出力してください。
+Canvasが勝手にリッチテキストに変換するのを防ぐため、コードブロック全体の囲みにはバッククォート4つ（````）を使用し、言語指定を「text」にしてください。
+```
+
+要件定義書 兼 基本設計書（SSOT v1.8）
 
 1. プロジェクト概要 (Project Overview)
 ・プロジェクト名: Cafe-Search (仮称)
@@ -151,11 +156,12 @@ Vite（React）の `import.meta.env.VITE_*` はビルド時に静的にインラ
 7. 本番環境デプロイ・インフラ設計 (Cloud Run Deployment)
 7.1 デプロイ概要・アーキテクチャ
 Cloud Run 上で React SPA を「Scale to Zero（無アクセス時は0インスタンス）」で運用するため、Nginx を使用したマルチステージ Docker ビルドを実施する。
+Cloud Run のデフォルトURL (`https://cafe-search-678473793429.asia-northeast1.run.app`) へのアクセスは、Nginx 内でカスタムドメイン (`https://cafe-search.immersed-in-knowing.com`) へ 301 リダイレクト処理を行う。
 
 ```
 [ ローカルソースコード & .env.local ] 
        │
-       ├─ Step 1: Dockerfile と nginx.conf の作成
+       ├─ Step 1: Dockerfile と nginx.conf の作成（301リダイレクト設定含む）
        ├─ Step 2: env.yaml の作成 (.env.local から生成・.gitignore 登録)
        ├─ Step 3: Cloud Run へデプロイ (--build-env-vars-file env.yaml)
        ├─ Step 4: Google Cloud APIキーのリファラー制限設定
@@ -165,12 +171,17 @@ Cloud Run 上で React SPA を「Scale to Zero（無アクセス時は0インス
 7.2 設定ファイル仕様
 
 ① Nginx 設定ファイル (`nginx.conf`)
-React Router 等の SPA ルーティングによる 404 エラーを防止する設定。
+React Router 等の SPA ルーティングによる 404 エラー防止、および Cloud Run デフォルトURLからカスタムドメインへの 301 リダイレクト設定。
 
 ```nginx
 server {
     listen 8080;
-    server_name localhost;
+    server_name _;
+
+    # Cloud RunデフォルトURLからカスタムドメインへの301リダイレクト
+    if ($host = 'cafe-search-678473793429.asia-northeast1.run.app') {
+        return 301 [https://cafe-search.immersed-in-knowing.com](https://cafe-search.immersed-in-knowing.com)$request_uri;
+    }
 
     location / {
         root /usr/share/nginx/html;
@@ -262,5 +273,6 @@ gcloud run deploy cafe-search \
 1. APIキーのウェブサイト制限 (Google Cloud Console):
    - `https://cafe-search.immersed-in-knowing.com/*`
    - `http://localhost:*`
+   ※ Cloud Run デフォルトURLはカスタムドメインへ301リダイレクトされるため、リファラー制限からは除外済み。
 2. カスタムドメインマッピング:
    - Cloud Run 画面より `cafe-search.immersed-in-knowing.com` をサービス `cafe-search` にマッピングし、DNS（CNAMEレコード）を設定する。
