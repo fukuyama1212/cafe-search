@@ -3,7 +3,7 @@ Markdownテキストを、Canvas上で自動レンダリングさせず、「プ
 Canvasが勝手にリッチテキストに変換するのを防ぐため、コードブロック全体の囲みにはバッククォート4つ（````）を使用し、言語指定を「text」にしてください。
 ```
 
-要件定義書 兼 基本設計書（SSOT v1.8）
+要件定義書 兼 基本設計書（SSOT v1.9）
 
 1. プロジェクト概要 (Project Overview)
 ・プロジェクト名: Cafe-Search (仮称)
@@ -37,13 +37,17 @@ Canvasが勝手にリッチテキストに変換するのを防ぐため、コ�
 ・TopScreen: エリア選択（すべて/渋谷/新宿）、Google Maps表示（Like済みピン連携）、スワイプ画面への遷移動線。
 ・SwipeScreen: Tinder風のカードスタックUI。物理的なドラッグ/タッチ操作による Like / Dislike 判定。
 ・ListScreen: Likeしたカフェの一覧表示および「食べログ」外部動的リンクへの導線。
+・DetailSheet (ボトムシートモーダル):
+ピンやカード等のタップ時に画面下部から出現するハーフモーダルUI。詳細情報、Google AdSense広告枠、および Googleマップ（経路・場所表示）への外部遷移ボタンを配置。ユーザー離脱を防止しつつ広告インプレッションと利便性を確保する。
 
 3.2 機能要件
-・F1. スワイプマッチングUI: カードスタックUI、物理的なドラッグ/タッチ操作によるLike/Dislike判定。
+・F1. スワイプマッチングUI: カードスタックUI、物理的なドラッグ/タッチ操作によるLike/Dislike判定。（※カード下部の操作ボタンにダミーカード等の不要な影が被らないクリーンなレイアウト構成とする）
 ・F2. 行きたいカフェマップ (My Map): Likes（保存済み）のカフェを地図上にピン留め表示。
 ・F3. 食べログ動的リンク生成: 離脱防止のため別タブ(target="_blank")で遷移。https://tabelog.com/rst/rstsearch/?keyword={店舗名}+{エリア名} の動的URLを生成。
 ・F4. データ永続化: ユーザー登録を行わず、ブラウザの localStorage を使用してLike/Dislike履歴を保持。
 ・F5. AIカフェデータ自動生成・バッチ同期: Google Places APIとLLM解析を組み合わせ、作業環境（電源・Wi-Fi）および各種スコアを事前作成してFirestoreに蓄積。
+・F6. Googleマップ外部遷移連携 (Universal Link):
+ボトムシート等のアクションから `https://www.google.com/maps/search/?api=1&query={店舗名}&query_place_id={placeId}` を使用して別タブ/アプリでGoogleマップを起動。ユーザーの利便性を最優先しつつ、直前で広告枠を表示する構成とする。
 
 4. データ設計 (Data Schema - Firestore)
 Firestoreのデータベース構造は以下の通り定義する。
@@ -276,3 +280,4 @@ gcloud run deploy cafe-search \
    ※ Cloud Run デフォルトURLはカスタムドメインへ301リダイレクトされるため、リファラー制限からは除外済み。
 2. カスタムドメインマッピング:
    - Cloud Run 画面より `cafe-search.immersed-in-knowing.com` をサービス `cafe-search` にマッピングし、DNS（CNAMEレコード）を設定する。
+   

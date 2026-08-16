@@ -30,6 +30,7 @@ export interface Cafe {
 interface GoogleMapProps {
   likedCafes: Cafe[];
   selectedStation: Station;
+  onCafeClick?: (cafe: Cafe) => void;
 }
 
 const STATION_CENTERS: Record<Station, { lat: number; lng: number }> = {
@@ -42,11 +43,10 @@ const getCenter = (selectedStation: Station) => {
   return STATION_CENTERS[selectedStation] ?? STATION_CENTERS.all;
 };
 
-export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProps) {
+export default function GoogleMap({ likedCafes, selectedStation, onCafeClick }: GoogleMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  const infoWindowRef = useRef<any>(null);
   
   const [isMapReady, setIsMapReady] = useState(false);
 
@@ -76,7 +76,6 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
         fullscreenControl: false,
         clickableIcons: false
       });
-      infoWindowRef.current = new google.maps.InfoWindow();
       
       setIsMapReady(true);
     }).catch((error: unknown) => {
@@ -121,14 +120,9 @@ export default function GoogleMap({ likedCafes, selectedStation }: GoogleMapProp
       });
 
       marker.addListener('click', () => {
-        if (!infoWindowRef.current) {
-          infoWindowRef.current = new google.maps.InfoWindow();
+        if (onCafeClick) {
+          onCafeClick(cafe);
         }
-
-        infoWindowRef.current.setContent(
-          `<div style="max-width:220px;font-family:system-ui,sans-serif;"><strong>${cafe.name}</strong><div style="font-size:0.9rem;color:#555;">${cafe.address}</div></div>`
-        );
-        infoWindowRef.current.open({ anchor: marker, map: mapRef.current });
       });
 
       markersRef.current.push(marker);

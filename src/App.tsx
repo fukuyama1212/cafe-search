@@ -1,9 +1,9 @@
-// App.tsx
 import { useState, useEffect, useRef, type Dispatch, type SetStateAction, type MouseEvent, type TouchEvent, type SVGProps } from 'react';
-import { MapPin, Wifi, BatteryCharging, Star, Heart, X, ExternalLink, ChevronLeft, List, Navigation, RotateCcw, Sparkles, Compass } from 'lucide-react';
+import { MapPin, Wifi, BatteryCharging, Star, Heart, X, ChevronLeft, List, Navigation, RotateCcw, Sparkles, Compass, Info } from 'lucide-react';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import GoogleMap from './components/GoogleMap';
+import CafeDetailBottomSheet from './components/CafeDetailBottomSheet';
 
 type Station = 'all' | '渋谷' | '新宿';
 
@@ -58,6 +58,7 @@ interface SwipeCardProps {
   cafe: Cafe;
   onLike: (id: string) => void;
   onDislike: (id: string) => void;
+  onShowDetail?: (cafe: Cafe) => void;
 }
 
 const AdBanner = ({ adSlot }: { adSlot: string }) => {
@@ -153,13 +154,6 @@ const parseCafeDocument = (doc: any): Cafe | null => {
   };
 };
 
-const generateTabelogUrl = (name: string, address: string) => {
-  const areaMatch = address.match(/(.+?[市区町村])/);
-  const area = areaMatch ? areaMatch[1] : '';
-  const keyword = encodeURIComponent(`${name} ${area}`.trim());
-  return `https://tabelog.com/rst/rstsearch/?keyword=${keyword}`;
-};
-
 export default function App() {
   const [view, setView] = useState<'top' | 'swipe' | 'list'>('top');
   const [selectedStation, setSelectedStation] = useState<Station>('all');
@@ -231,12 +225,21 @@ export default function App() {
     });
   };
 
+  // ★ リセット時にオンボーディングを再表示するように修正
   const handleReset = () => {
     if (window.confirm('マッチング履歴とお気に入りをすべてリセットして最初からやり直しますか？')) {
+      // 履歴ステートとローカルストレージの初期化
       setLikedIds([]);
       setDislikedIds([]);
       localStorage.setItem('cafe_search_likes', JSON.stringify([]));
       localStorage.setItem('cafe_search_dislikes', JSON.stringify([]));
+      
+      // オンボーディングフラグを削除して再表示
+      localStorage.removeItem('cafe_search_onboarded');
+      setShowOnboarding(true);
+      
+      // 裏側のビューをトップ画面に戻しておく
+      setView('top');
     }
   };
 
@@ -367,6 +370,18 @@ function OnboardingScreen({ onClose, onStartSwipe }: { onClose: () => void; onSt
 
 /** トップ画面（青緑アクセント仕様） */
 function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCount, onGoToSwipe, onGoToList, onReset }: TopScreenProps) {
+  const [selectedCafe, setSelectedCafe] = useState<Cafe | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
+  const handleCafeClick = (cafe: Cafe) => {
+    setSelectedCafe(cafe);
+    setShowDetailModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowDetailModal(false);
+  };
+
   const stations: { id: Station; label: string }[] = [
     { id: 'all', label: 'ALL' },
     { id: '渋谷', label: '渋谷' },
@@ -427,7 +442,7 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
       {/* 地図エリア */}
       <div className="flex-1 relative overflow-hidden">
         <div className="absolute inset-0 filter contrast-[0.95] brightness-[0.85]">
-          <GoogleMap likedCafes={likedCafes} selectedStation={selectedStation} />
+          <GoogleMap likedCafes={likedCafes} selectedStation={selectedStation} onCafeClick={handleCafeClick} />
         </div>
 
         {likedCafes.length === 0 && (
@@ -462,14 +477,33 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
         </div>
       </div>
       <AdBanner adSlot="4426766487" />
+      
+      <CafeDetailBottomSheet 
+        isOpen={showDetailModal}
+        cafe={selectedCafe}
+        onClose={handleCloseModal}
+        adSlot="9876543210"
+      />
     </div>
   );
 }
 
 /** スワイプ画面 */
 function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeScreenProps) {
+  const [selectedCafe, setSelectedCafe] = useState<Cafe | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
   const currentCafe = unseenCafes[0];
   const isFinished = unseenCafes.length === 0;
+
+  const handleShowDetail = (cafe: Cafe) => {
+    setSelectedCafe(cafe);
+    setShowDetailModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowDetailModal(false);
+  };
 
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden">
@@ -512,17 +546,37 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
             key={currentCafe.placeId} 
             cafe={currentCafe} 
             onLike={onLike} 
-            onDislike={onDislike} 
+            onDislike={onDislike}
+            onShowDetail={handleShowDetail}
           />
         )}
       </div>
       <AdBanner adSlot="6168007389" />
+      
+      <CafeDetailBottomSheet 
+        isOpen={showDetailModal}
+        cafe={selectedCafe}
+        onClose={handleCloseModal}
+        adSlot="9876543210"
+      />
     </div>
   );
 }
 
 /** リスト画面 */
 function ListScreen({ likedCafes, onBack }: ListScreenProps) {
+  const [selectedCafe, setSelectedCafe] = useState<Cafe | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+
+  const handleCafeClick = (cafe: Cafe) => {
+    setSelectedCafe(cafe);
+    setShowDetailModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setShowDetailModal(false);
+  };
+
   return (
     <div className="flex flex-col h-full bg-zinc-950 overflow-hidden">
       <header className="px-4 py-3 flex items-center bg-zinc-900/90 backdrop-blur-md border-b border-zinc-800/80 z-20 shrink-0">
@@ -546,7 +600,11 @@ function ListScreen({ likedCafes, onBack }: ListScreenProps) {
           </div>
         ) : (
           likedCafes.map(cafe => (
-            <div key={cafe.placeId} className="bg-zinc-900/90 rounded-2xl border border-zinc-800 overflow-hidden flex flex-col shadow-lg">
+            <div 
+              key={cafe.placeId} 
+              onClick={() => handleCafeClick(cafe)}
+              className="bg-zinc-900/90 rounded-2xl border border-zinc-800 overflow-hidden flex flex-col shadow-lg cursor-pointer hover:border-teal-500/50 transition-colors"
+            >
               <div className="h-36 relative">
                 <img src={cafe.photoUrls[0]} alt={cafe.name} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-transparent to-transparent" />
@@ -566,26 +624,29 @@ function ListScreen({ likedCafes, onBack }: ListScreenProps) {
                   <span className="text-[11px] font-semibold px-2.5 py-1 bg-zinc-800 text-teal-300 rounded-md border border-zinc-700/50">おしゃれ {cafe.scores.stylishness.toFixed(1)}</span>
                 </div>
 
-                <a 
-                  href={generateTabelogUrl(cafe.name, cafe.address)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/80 rounded-xl flex items-center justify-center text-xs font-bold transition-colors"
-                >
-                  <span>食べログで詳細をみる</span>
-                  <ExternalLink size={13} className="ml-1.5" />
-                </a>
+                <p className="text-[11px] text-zinc-500 text-center py-2">
+                  タップして詳細を表示
+                </p>
               </div>
             </div>
           ))
         )}
       </div>
+
+      <AdBanner adSlot="6579372244" />
+
+      <CafeDetailBottomSheet 
+        isOpen={showDetailModal}
+        cafe={selectedCafe}
+        onClose={handleCloseModal}
+        adSlot="9876543210"
+      />
     </div>
   );
 }
 
 /** スワイプカード */
-function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
+function SwipeCard({ cafe, onLike, onDislike, onShowDetail }: SwipeCardProps) {
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -638,8 +699,6 @@ function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
 
   return (
     <div className="absolute inset-0 flex flex-col p-4 pb-6">
-      {/* 重なり演出用の背景要素を削除しました */}
-
       <div 
         {...bindEvents}
         className="relative flex-1 bg-zinc-900 rounded-[2rem] shadow-2xl overflow-hidden cursor-grab active:cursor-grabbing border border-zinc-800 select-none"
@@ -659,6 +718,19 @@ function SwipeCard({ cafe, onLike, onDislike }: SwipeCardProps) {
             <X size={32} />
           </div>
         </div>
+
+        {onShowDetail && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onShowDetail(cafe);
+            }}
+            className="absolute top-4 right-4 z-30 w-9 h-9 bg-zinc-950/80 backdrop-blur-md rounded-full flex items-center justify-center text-teal-300 hover:bg-teal-500/20 hover:text-teal-200 transition-all border border-teal-500/30 pointer-events-auto shadow-lg"
+            title="詳細を表示"
+          >
+            <Info size={18} />
+          </button>
+        )}
 
         <img 
           src={cafe.photoUrls[0]} 
