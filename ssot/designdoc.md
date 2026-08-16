@@ -1,9 +1,4 @@
-```
-Markdownテキストを、Canvas上で自動レンダリングさせず、「プレーンテキスト（Text）」または「Markdownファイル」のソースコード枠として出力してください。
-Canvasが勝手にリッチテキストに変換するのを防ぐため、コードブロック全体の囲みにはバッククォート4つ（````）を使用し、言語指定を「text」にしてください。 
-```
-
-要件定義書 兼 基本設計書（SSOT v1.6）
+要件定義書 兼 基本設計書（SSOT v1.7）
 
 1. プロジェクト概要 (Project Overview)
 ・プロジェクト名: Cafe-Search (仮称)
@@ -139,8 +134,11 @@ Firestoreのデータベース構造は以下の通り定義する。
   1. Maps Static APIへの移行: 静止画マップへ切り替え、APIコストを大幅低減。
   2. Mapboxへの移行: 50,000回まで無料枠がある代替サービスへの乗り換え検討。
 
-5.2 セキュリティ・セキュリティルール
-・APIキーの秘匿と制限: APIキーはソースコードにハードコードせず環境変数経由で管理する。
+5.2 セキュリティ・環境変数管理（`.env.local` 共通利用）
+・環境変数管理方針:
+APIキーや設定情報は Git で追跡管理しないため `.gitignore` に登録する `.env.local` を唯一の参照元（SSOT）とし、ローカル開発・本番デプロイ双方で同じ定義を利用する。具体の値はリポジトリに含めず、変数のキー名のみをドキュメント上で定義する。
+・フロントエンドにおけるビルド時埋め込み:
+Vite（React）の `import.meta.env.VITE_*` はビルド時に静的にインライン展開されるため、デプロイ用ビルド時（Cloud Build）に `.env.local` の内容をもとに生成した設定を読み込ませる。
 ・HTTP リファラー制限: https://cafe-search.immersed-in-knowing.com/* および開発環境のみにアクセスを限定。
 ・API 制限: 「Maps JavaScript API」および「Places API (New)」のみを許可し、他APIの不正利用を防止する。
 ・Firestore Security Rules:
@@ -149,3 +147,120 @@ Firestoreのデータベース構造は以下の通り定義する。
 6. コンプライアンス・制約事項
 ・Tabelog制約: 食べログデータのスクレイピングは一切不可。https://tabelog.com/rst/rstsearch/?keyword={店舗名}+{エリア名} の動的URL生成による直リンク遷移（target="_blank"）のみで実装すること。
 ・AI運用: 実装時は本SSOTを必ず遵守すること。
+
+7. 本番環境デプロイ・インフラ設計 (Cloud Run Deployment)
+7.1 デプロイ概要・アーキテクチャ
+Cloud Run 上で React SPA を「Scale to Zero（無アクセス時は0インスタンス）」で運用するため、Nginx を使用したマルチステージ Docker ビルドを実施する。
+
+```
+[ ローカルソースコード & .env.local ] 
+       │
+       ├─ Step 1: Dockerfile と nginx.conf の作成
+       ├─ Step 2: env.yaml の作成 (.env.local から生成・.gitignore 登録)
+       ├─ Step 3: Cloud Run へデプロイ (--build-env-vars-file env.yaml)
+       ├─ Step 4: Google Cloud APIキーのリファラー制限設定
+       └─ Step 5: カスタムドメイン (cafe-search.immersed-in-knowing.com) 設定
+```
+
+7.2 設定ファイル仕様
+
+① Nginx 設定ファイル (`nginx.conf`)
+React Router 等の SPA ルーティングによる 404 エラーを防止する設定。
+
+```nginx
+server {
+    listen 8080;
+    server_name localhost;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html index.htm;
+        try_files $uri $uri/ /index.html;
+    }
+
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}
+```
+
+② Dockerfile (`Dockerfile`)
+`.env.local` / `env.yaml` から渡されたビルド用引数（ARG）を Vite のビルド環境変数（ENV）へ注入してビルドする。
+
+```dockerfile
+# --- Stage 1: Build Stage ---
+FROM node:24-alpine AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+ARG VITE_GOOGLE_MAPS_API_KEY
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ARG VITE_FIREBASE_STORAGE_BUCKET
+ARG VITE_FIREBASE_MESSAGING_SENDER_ID
+ARG VITE_FIREBASE_APP_ID
+ARG VITE_FIREBASE_MEASUREMENT_ID
+ARG VITE_FIREBASE_DATABASE_ID
+
+ENV VITE_GOOGLE_MAPS_API_KEY=$VITE_GOOGLE_MAPS_API_KEY
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY
+ENV VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN
+ENV VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_STORAGE_BUCKET=$VITE_FIREBASE_STORAGE_BUCKET
+ENV VITE_FIREBASE_MESSAGING_SENDER_ID=$VITE_FIREBASE_MESSAGING_SENDER_ID
+ENV VITE_FIREBASE_APP_ID=$VITE_FIREBASE_APP_ID
+ENV VITE_FIREBASE_MEASUREMENT_ID=$VITE_FIREBASE_MEASUREMENT_ID
+ENV VITE_FIREBASE_DATABASE_ID=$VITE_FIREBASE_DATABASE_ID
+
+COPY . .
+RUN npm run build
+
+# --- Stage 2: Production Stage ---
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+7.3 デプロイ実行手順
+
+1. `env.yaml` の準備（`.env.local` からビルド時引数用YAMLを作成）
+※ Git管理を避けるため `.env.local` と同様に `env.yaml` を `.gitignore` に追加します。`.env.local` の値を元に以下の構造で作成します。
+
+例 (`env.yaml` テンプレート構造):
+```yaml
+VITE_GOOGLE_MAPS_API_KEY: "<.env.localのVITE_GOOGLE_MAPS_API_KEYの値>"
+VITE_FIREBASE_API_KEY: "<.env.localのVITE_FIREBASE_API_KEYの値>"
+VITE_FIREBASE_AUTH_DOMAIN: "<.env.localのVITE_FIREBASE_AUTH_DOMAINの値>"
+VITE_FIREBASE_PROJECT_ID: "<.env.localのVITE_FIREBASE_PROJECT_IDの値>"
+VITE_FIREBASE_STORAGE_BUCKET: "<.env.localのVITE_FIREBASE_STORAGE_BUCKETの値>"
+VITE_FIREBASE_MESSAGING_SENDER_ID: "<.env.localのVITE_FIREBASE_MESSAGING_SENDER_IDの値>"
+VITE_FIREBASE_APP_ID: "<.env.localのVITE_FIREBASE_APP_IDの値>"
+VITE_FIREBASE_MEASUREMENT_ID: "<.env.localのVITE_FIREBASE_MEASUREMENT_IDの値>"
+VITE_FIREBASE_DATABASE_ID: "<.env.localのVITE_FIREBASE_DATABASE_IDの値>"
+```
+
+2. デプロイコマンドの実行
+```bash
+gcloud run deploy cafe-search \
+  --source . \
+  --region asia-northeast1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --port 8080 \
+  --min-instances 1 \
+  --build-env-vars-file env.yaml
+```
+
+7.4 ドメイン・APIキー制限設定
+1. APIキーのウェブサイト制限 (Google Cloud Console):
+   - `https://cafe-search.immersed-in-knowing.com/*`
+   - `http://localhost:*`
+2. カスタムドメインマッピング:
+   - Cloud Run 画面より `cafe-search.immersed-in-knowing.com` をサービス `cafe-search` にマッピングし、DNS（CNAMEレコード）を設定する。

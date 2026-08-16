@@ -60,6 +60,48 @@ interface SwipeCardProps {
   onDislike: (id: string) => void;
 }
 
+const AdBanner = ({ adSlot }: { adSlot: string }) => {
+  useEffect(() => {
+    // 本番環境でのみ AdSense スクリプトを読み込み・実行
+    if (import.meta.env.PROD) {
+      // スクリプトの重複ロードを防止
+      if (!document.querySelector('script[src*="adsbygoogle.js"]')) {
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6858311844342267';
+        script.crossOrigin = 'anonymous';
+        document.head.appendChild(script);
+      }
+      
+      // 広告の初期化
+      try {
+        ((window as any).adsbygoogle = (window as any).adsbygoogle || []).push({});
+      } catch (e) {
+        console.error('AdSense initialization error:', e);
+      }
+    }
+  }, []);
+
+  // ローカル環境用のプレースホルダー
+  if (!import.meta.env.PROD) {
+    return (
+      <div className="w-full h-[60px] bg-gray-200 flex items-center justify-center text-gray-500 text-sm font-bold shrink-0 border-t border-gray-300">
+        【ローカル環境】広告枠 (Slot: {adSlot})
+      </div>
+    );
+  }
+
+  // 本番環境用の広告表示（高さを60pxに固定してUX悪化を防止）
+  return (
+    <div className="w-full h-[60px] bg-white flex items-center justify-center shrink-0 border-t border-gray-100 overflow-hidden">
+      <ins className="adsbygoogle"
+           style={{ display: 'inline-block', width: '100%', height: '60px' }}
+           data-ad-client="ca-pub-6858311844342267"
+           data-ad-slot={adSlot}></ins>
+    </div>
+  );
+};
+
 const normalizeNumber = (value: unknown, fallback = 0) => {
   const num = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(num) ? num : fallback;
@@ -336,6 +378,7 @@ function TopScreen({ selectedStation, setSelectedStation, likedCafes, unseenCoun
           </button>
         </div>
       </div>
+      <AdBanner adSlot="4426766487" />
     </div>
   );
 }
@@ -388,6 +431,7 @@ function SwipeScreen({ unseenCafes, onLike, onDislike, onBack, onReset }: SwipeS
           />
         )}
       </div>
+      <AdBanner adSlot="6168007389" />
     </div>
   );
 }
